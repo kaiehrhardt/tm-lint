@@ -22,8 +22,9 @@ const DefaultIgnoreFile = ".tmlintignore"
 //
 // A target is either a path glob relative to the project root
 // (`*` within a segment, `**` across segments; a directory matches everything
-// below it) or a global path (`global.ci_token`, `global.ci.*`), which applies
-// to the findings of unused-global and undefined-global.
+// below it) or a global path (`global.ci_token`, `global.ci.*`, or `global`
+// for every global), which applies to the findings of unused-global and
+// undefined-global.
 type IgnoreFile struct {
 	path    string
 	entries []ignoreEntry
@@ -81,7 +82,9 @@ func LoadIgnoreFile(path string, required bool) (*IgnoreFile, error) {
 		}
 
 		switch {
-		case target == "global" || strings.HasPrefix(target, "global."):
+		case target == "global":
+			entry.global = [][]string{{"*"}} // every global
+		case strings.HasPrefix(target, "global."):
 			entry.global = ParseGlobalPatterns(target)
 		default:
 			re, err := globToRegexp(target)

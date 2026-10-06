@@ -94,7 +94,7 @@ One entry per line, `#` starts a comment:
 
 A target is either
 - a **path glob** relative to the project root: `*` matches within a directory, `**` spans directories, and a directory matches everything below it, or
-- a **global path** like `global.ci_token` or `global.ci.*`, which applies to the findings of `unused-global` and `undefined-global`.
+- a **global path** like `global.ci_token` or `global.ci.*` (or just `global` for every global), which applies to the findings of `unused-global` and `undefined-global`.
 
 ```
 # Legacy stacks that are being decommissioned.

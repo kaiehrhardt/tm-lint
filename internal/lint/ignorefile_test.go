@@ -65,6 +65,14 @@ func TestIgnoreFile(t *testing.T) {
 		}
 	}
 
+	all, err := LoadIgnoreFile(write("unused-global global\n"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !all.Matches(Finding{Rule: "unused-global", Global: []string{"any", "thing"}}, "x.tm") {
+		t.Error("a bare `global` target must match every global")
+	}
+
 	if _, err := LoadIgnoreFile(write("no-such-rule foo\n"), true); err == nil {
 		t.Error("unknown rule must be an error")
 	}
