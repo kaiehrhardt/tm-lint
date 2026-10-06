@@ -1,0 +1,22 @@
+globals.tm.hcl:3:3: [unused-global] global.unused_root is never used
+globals.tm.hcl:14:3: [unused-global] global.net.unused_child is never used
+globals.tm.hcl:20:3: [unused-global] global.ci_token is never used
+globals.tm.hcl:29:3: [unused-global] global.users is never used
+globals.tm.hcl:45:3: [unused-global] global.self_only is never used
+globals.tm.hcl:45:15: [undefined-global] global.self_only is not defined
+imports/common.tm.hcl:3:3: [unused-global] global.import_unused is never used
+stacks/a/stack.tm.hcl:3:33: [invalid-stack-ref] stack.after entry "/stacks/nope" does not exist (Terramate only warns at run time and ignores it)
+stacks/a/stack.tm.hcl:3:49: [invalid-stack-ref] stack.after entry "/imports" contains no stacks (silently ignored by Terramate)
+stacks/a/stack.tm.hcl:3:77: [invalid-stack-ref] stack.after entry "tag:prood" uses tag(s) no stack has: prood
+stacks/a/stack.tm.hcl:3:90: [invalid-stack-ref] stack.after entry "tag:dev:net" matches no stack (silently ignored by Terramate)
+stacks/a/stack.tm.hcl:4:12: [invalid-stack-ref] stack.wants entry "/globals.tm.hcl" is not a directory (Terramate only warns at run time and ignores it)
+stacks/a/stack.tm.hcl:5:13: [invalid-stack-ref] stack.before entry "." references the stack itself
+stacks/a/stack.tm.hcl:17:40: [undefined-global] global.sibling_only is not defined
+stacks/b/stack.tm.hcl:7:3: [unused-global] global.sibling_only is never used
+stacks/c/stack.tm.hcl:4:3: [unused-global] global.region is never used
+stacks/d/stack.tm.hcl:6:5: [unused-let] let.unused is never used in generate_hcl "d.tf"
+stacks/d/stack.tm.hcl:8:5: [unused-let] let.m is never used in generate_hcl "d.tf"
+stacks/d/stack.tm.hcl:21:21: [undefined-global] global.regoin is not defined anywhere, the tm_try/tm_can fallback is always used, did you mean global.region?
+stacks/d/stack.tm.hcl:22:14: [undefined-global] global.missing is not defined
+stacks/d/stack.tm.hcl:23:21: [undefined-global] global.net.cidrr is not defined (silently masked by tm_try/tm_can), did you mean global.net.cidr?
+stacks/d/stack.tm.hcl:25:14: [undefined-global] global.tagz is not defined, did you mean global.tags?
