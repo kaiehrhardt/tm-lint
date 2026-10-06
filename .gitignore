@@ -1,1 +1,4 @@
 /tm-lint
+# local-only module files for builds without the Go proxy
+/local.mod
+/local.sum

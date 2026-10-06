@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/kaiehrhardt/tm-lint/internal/lint"
 )
 
 // runCLI executes the root command like main does and returns its output.
@@ -149,9 +151,9 @@ func TestCLIListRules(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, r := range rules {
-				if !strings.Contains(out, r.name) {
-					t.Errorf("rule %s not listed\n%s", r.name, out)
+			for _, r := range lint.Rules {
+				if !strings.Contains(out, r.Name) {
+					t.Errorf("rule %s not listed\n%s", r.Name, out)
 				}
 			}
 		})

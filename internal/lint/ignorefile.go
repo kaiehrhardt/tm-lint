@@ -1,4 +1,4 @@
-package main
+package lint
 
 import (
 	"bufio"
@@ -10,10 +10,10 @@ import (
 	"strings"
 )
 
-// defaultIgnoreFile is read from the project root when it exists.
-const defaultIgnoreFile = ".tmlintignore"
+// DefaultIgnoreFile is read from the project root when it exists.
+const DefaultIgnoreFile = ".tmlintignore"
 
-// ignoreFile holds the entries of a .tmlintignore file.
+// IgnoreFile holds the entries of a .tmlintignore file.
 //
 // Format, one entry per line, '#' starts a comment:
 //
@@ -24,7 +24,7 @@ const defaultIgnoreFile = ".tmlintignore"
 // (`*` within a segment, `**` across segments; a directory matches everything
 // below it) or a global path (`global.ci_token`, `global.ci.*`), which applies
 // to the findings of unused-global and undefined-global.
-type ignoreFile struct {
+type IgnoreFile struct {
 	path    string
 	entries []ignoreEntry
 }
@@ -36,24 +36,21 @@ type ignoreEntry struct {
 	global [][]string      // set for global targets
 }
 
-// loadIgnoreFile parses the ignore file at path. A missing file is only an
+// LoadIgnoreFile parses the ignore file at path. A missing file is only an
 // error when required is true.
-func loadIgnoreFile(path string, required bool) (*ignoreFile, error) {
+func LoadIgnoreFile(path string, required bool) (*IgnoreFile, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if !required && errors.Is(err, fs.ErrNotExist) {
-			return &ignoreFile{}, nil
+			return &IgnoreFile{}, nil
 		}
 		return nil, err
 	}
 	defer f.Close()
 
-	known := map[string]bool{}
-	for _, r := range rules {
-		known[r.name] = true
-	}
+	known := knownRules()
 
-	ign := &ignoreFile{path: path}
+	ign := &IgnoreFile{path: path}
 	sc := bufio.NewScanner(f)
 	for lineNo := 1; sc.Scan(); lineNo++ {
 		line := sc.Text()
@@ -83,12 +80,10 @@ func loadIgnoreFile(path string, required bool) (*ignoreFile, error) {
 			}
 		}
 
-		if target == "global" || strings.HasPrefix(target, "global.") {
-			entry.global = parseGlobalPatterns(target)
-			if len(entry.global) == 0 {
-				entry.global = [][]string{{"*"}}
-			}
-		} else {
+		switch {
+		case target == "global" || strings.HasPrefix(target, "global."):
+			entry.global = ParseGlobalPatterns(target)
+		default:
 			re, err := globToRegexp(target)
 			if err != nil {
 				return nil, fmt.Errorf("%s:%d: invalid path pattern %q: %w", path, lineNo, target, err)
@@ -103,14 +98,14 @@ func loadIgnoreFile(path string, required bool) (*ignoreFile, error) {
 	return ign, nil
 }
 
-// matches reports whether finding f (in project-relative file relFile) is
+// Matches reports whether finding f (in project-relative file relFile) is
 // suppressed by any entry.
-func (ign *ignoreFile) matches(f finding, relFile string) bool {
+func (ign *IgnoreFile) Matches(f Finding, relFile string) bool {
 	if ign == nil {
 		return false
 	}
 	for _, e := range ign.entries {
-		if e.rules != nil && !e.rules[f.rule] {
+		if e.rules != nil && !e.rules[f.Rule] {
 			continue
 		}
 		switch {
@@ -119,7 +114,7 @@ func (ign *ignoreFile) matches(f finding, relFile string) bool {
 				return true
 			}
 		case e.global != nil:
-			if f.global != nil && matchesGlobalPattern(f.global, e.global) {
+			if f.Global != nil && matchesGlobalPattern(f.Global, e.global) {
 				return true
 			}
 		}

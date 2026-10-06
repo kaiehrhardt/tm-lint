@@ -164,12 +164,32 @@ A `let` in a `lets` block (e.g. in `generate_hcl`/`generate_file`) that is never
 - **Hierarchy in `undefined-global`:** a global used in a parent `generate_hcl` but defined in only *some* of the stacks below counts as defined.
 - **Non-literal stack attributes:** `stack` attributes that are not literal lists are skipped.
 
-## Adding rules
+## Development
 
-A rule is a function `func(p *project, opts *options) []finding` registered in `rules` in `lint.go`. `project` provides:
-- all parsed files (`files`, `bodies`, `sources`),
-- the stacks with their tags (`stacks`),
-- the evaluation contexts of a file, taking imports into account (`contexts`),
-- the global index (`globals()`).
+The layout follows the [official Go recommendation for a command with supporting packages](https://go.dev/doc/modules/layout#command-with-supporting-packages): the command lives in the module root, so `go install github.com/kaiehrhardt/tm-lint@latest` works, and everything else is in `internal/`.
 
-Add a case for every new rule to `testdata/example` and run `go test -update`.
+```
+.
+├── main.go, cli.go         command: cobra/viper CLI, output formatting
+├── *_test.go               CLI and end-to-end tests against testdata/
+├── testdata/               example project and its expected output
+└── internal/
+    ├── project/            loads a Terramate project: files, imports, stacks,
+    │                       evaluation contexts, root detection, scopes
+    ├── lint/               rules, findings, ignore file, inline suppression
+    └── hclutil/            small helpers for the HCL syntax tree
+```
+
+```sh
+go test ./...           # all tests
+go test -update .       # rewrite testdata/example.expected after intentional changes
+```
+
+### Adding rules
+
+A rule is a function `func(c *checker) []Finding` in `internal/lint`, registered in `Rules` in `internal/lint/lint.go`. The checker gives access to:
+- the project (`c.p`): parsed files (`Files`, `Bodies`, `Sources`), stacks with their tags (`Stacks`), and the evaluation contexts of a file, taking imports into account (`Contexts`),
+- the options (`c.opts`),
+- the global index (`c.globals()`), built once per run.
+
+Add a unit test next to the rule, and a case to `testdata/example`, then run `go test -update .`.

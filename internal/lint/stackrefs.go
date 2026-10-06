@@ -1,4 +1,4 @@
-package main
+package lint
 
 import (
 	"fmt"
@@ -9,6 +9,9 @@ import (
 
 	"github.com/terramate-io/hcl/v2"
 	"github.com/terramate-io/hcl/v2/hclsyntax"
+
+	"github.com/kaiehrhardt/tm-lint/internal/hclutil"
+	"github.com/kaiehrhardt/tm-lint/internal/project"
 )
 
 // stackRefAttrs are the stack attributes Terramate resolves with the same
@@ -18,26 +21,25 @@ import (
 // ignored, which is what this rule catches.
 var stackRefAttrs = []string{"after", "before", "wants", "wanted_by"}
 
-func ruleInvalidStackRef(p *project, _ *options) []finding {
-	var out []finding
-	for _, st := range p.stacks {
+func ruleInvalidStackRef(c *checker) []Finding {
+	var out []Finding
+	for _, st := range c.p.Stacks {
 		for _, attrName := range stackRefAttrs {
-			attr, ok := st.block.Body.Attributes[attrName]
+			attr, ok := st.Block.Body.Attributes[attrName]
 			if !ok {
 				continue
 			}
-			entries, ok := literalStrings(attr.Expr)
+			entries, ok := hclutil.LiteralStrings(attr.Expr)
 			if !ok {
 				continue // not a literal list; Terramate itself validates the type
 			}
 			for i, entry := range entries {
-				rng := elementRange(attr, i)
-				if msg := p.checkStackRef(st, entry); msg != "" {
-					out = append(out, finding{
-						rule: "invalid-stack-ref",
-						file: st.file,
-						rng:  rng,
-						msg:  fmt.Sprintf("stack.%s entry %q %s", attrName, entry, msg),
+				if msg := checkStackRef(c.p, st, entry); msg != "" {
+					out = append(out, Finding{
+						Rule:  "invalid-stack-ref",
+						File:  st.File,
+						Range: elementRange(attr, i),
+						Msg:   fmt.Sprintf("stack.%s entry %q %s", attrName, entry, msg),
 					})
 				}
 			}
@@ -47,30 +49,29 @@ func ruleInvalidStackRef(p *project, _ *options) []finding {
 }
 
 // checkStackRef returns a problem description, or "" if the entry is fine.
-func (p *project) checkStackRef(st *stackInfo, entry string) string {
-	if strings.HasPrefix(entry, "tag:") {
-		return p.checkTagFilter(strings.TrimPrefix(entry, "tag:"))
+func checkStackRef(p *project.Project, st *project.Stack, entry string) string {
+	if filter, ok := strings.CutPrefix(entry, "tag:"); ok {
+		return checkTagFilter(p.Stacks, filter)
 	}
 
 	target := entry
 	if !path.IsAbs(target) {
-		target = path.Join(st.dir, target)
+		target = path.Join(st.Dir, target)
 	}
 	target = path.Clean(target)
 
-	hostPath := filepath.Join(p.root, filepath.FromSlash(target))
-	fi, err := os.Stat(hostPath)
+	fi, err := os.Stat(filepath.Join(p.Root, filepath.FromSlash(target)))
 	if err != nil {
 		return "does not exist (Terramate only warns at run time and ignores it)"
 	}
 	if !fi.IsDir() {
 		return "is not a directory (Terramate only warns at run time and ignores it)"
 	}
-	if target == st.dir {
+	if target == st.Dir {
 		return "references the stack itself"
 	}
-	for _, other := range p.stacks {
-		if isAncestorDir(target, other.dir) {
+	for _, other := range p.Stacks {
+		if project.IsAncestorDir(target, other.Dir) {
 			return ""
 		}
 	}
@@ -79,10 +80,10 @@ func (p *project) checkStackRef(st *stackInfo, entry string) string {
 
 // checkTagFilter implements Terramate's order-entry filter syntax:
 // "," is OR, ":" is AND (binds tighter), "~" negates a tag.
-func (p *project) checkTagFilter(filter string) string {
+func checkTagFilter(stacks []*project.Stack, filter string) string {
 	known := map[string]bool{}
-	for _, st := range p.stacks {
-		for _, t := range st.tags {
+	for _, st := range stacks {
+		for _, t := range st.Tags {
 			known[t] = true
 		}
 	}
@@ -103,8 +104,8 @@ func (p *project) checkTagFilter(filter string) string {
 		return fmt.Sprintf("uses tag(s) no stack has: %s", strings.Join(unknown, ", "))
 	}
 
-	for _, st := range p.stacks {
-		if matchTagFilter(filter, st.tags) {
+	for _, st := range stacks {
+		if matchTagFilter(filter, st.Tags) {
 			return ""
 		}
 	}
@@ -122,8 +123,8 @@ func matchTagFilter(filter string, tags []string) bool {
 		}
 		all := true
 		for _, tag := range strings.Split(orClause, ":") {
-			if neg := strings.HasPrefix(tag, "~"); neg {
-				if has[tag[1:]] {
+			if neg, ok := strings.CutPrefix(tag, "~"); ok {
+				if has[neg] {
 					all = false
 				}
 			} else if !has[tag] {

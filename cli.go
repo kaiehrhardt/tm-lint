@@ -10,6 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/kaiehrhardt/tm-lint/internal/lint"
+	"github.com/kaiehrhardt/tm-lint/internal/project"
 )
 
 // envPrefix is the prefix of the environment variables. Every flag can be set
@@ -68,7 +71,7 @@ Exit codes: 0 = no findings, 1 = findings, 2 = error.`,
 	f.StringSlice(keyEnable, nil, "rules to run, comma-separated or repeated (default: all)")
 	f.StringSlice(keyDisable, nil, "rules to skip, comma-separated or repeated")
 	f.StringSlice(keyIgnoreGlobals, nil, "global paths ignored by unused-global and undefined-global; a trailing '*' matches everything below (e.g. global.ci.*)")
-	f.String(keyIgnoreFile, "", "ignore file (default: "+defaultIgnoreFile+" in the project root, if present)")
+	f.String(keyIgnoreFile, "", "ignore file (default: "+lint.DefaultIgnoreFile+" in the project root, if present)")
 	f.Bool(keyListRules, false, "print the available rules and exit")
 	if err := v.BindPFlags(f); err != nil {
 		panic(err) // only fails for a nil flag set
@@ -94,18 +97,18 @@ Environment:
 Suppressing findings:
   # %[2]s [rule, ...]             comment on the line or the line above
   [rule,...] <path-glob | global.path>     entry in %[3]s in the project root
-`, envPrefix, ignoreMarker, defaultIgnoreFile)
+`, envPrefix, lint.IgnoreMarker, lint.DefaultIgnoreFile)
 }
 
 func run(out io.Writer, v *viper.Viper, args []string) error {
 	if v.GetBool(keyListRules) {
-		for _, r := range rules {
-			fmt.Fprintf(out, "%-18s %s\n", r.name, r.doc)
+		for _, r := range lint.Rules {
+			fmt.Fprintf(out, "%-18s %s\n", r.Name, r.Doc)
 		}
 		return nil
 	}
 
-	enabled, err := selectRules(listValue(v, keyEnable), listValue(v, keyDisable))
+	enabled, err := lint.SelectRules(listValue(v, keyEnable), listValue(v, keyDisable))
 	if err != nil {
 		return err
 	}
@@ -120,25 +123,25 @@ func run(out io.Writer, v *viper.Viper, args []string) error {
 
 	root := v.GetString(keyRoot)
 	if root == "" {
-		if root, err = detectRoot(paths[0]); err != nil {
+		if root, err = project.DetectRoot(paths[0]); err != nil {
 			return err
 		}
 	}
-	p, err := loadProject(root)
+	p, err := project.Load(root)
 	if err != nil {
 		return err
 	}
-	scopes, err := resolveScopes(p.root, paths)
-	if err != nil {
-		return err
-	}
-
-	opts, err := newOptions(p, v.GetString(keyIgnoreFile), strings.Join(listValue(v, keyIgnoreGlobals), ","))
+	scopes, err := p.ResolveScopes(paths)
 	if err != nil {
 		return err
 	}
 
-	findings := filterScope(p, lint(p, opts, enabled), scopes)
+	opts, err := lint.NewOptions(p, v.GetString(keyIgnoreFile), listValue(v, keyIgnoreGlobals))
+	if err != nil {
+		return err
+	}
+
+	findings := lint.FilterScope(p, lint.Run(p, opts, enabled), scopes)
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -167,40 +170,14 @@ func listValue(v *viper.Viper, key string) []string {
 
 // formatFindings prints file paths relative to base (the working directory),
 // so editors and CI can jump to them.
-func formatFindings(base string, findings []finding) string {
+func formatFindings(base string, findings []lint.Finding) string {
 	var sb strings.Builder
 	for _, f := range findings {
-		file, err := filepath.Rel(base, f.file)
+		file, err := filepath.Rel(base, f.File)
 		if err != nil {
-			file = f.file
+			file = f.File
 		}
-		fmt.Fprintf(&sb, "%s:%d:%d: [%s] %s\n", filepath.ToSlash(file), f.rng.Start.Line, f.rng.Start.Column, f.rule, f.msg)
+		fmt.Fprintf(&sb, "%s:%d:%d: [%s] %s\n", filepath.ToSlash(file), f.Range.Start.Line, f.Range.Start.Column, f.Rule, f.Msg)
 	}
 	return sb.String()
-}
-
-func selectRules(enable, disable []string) (map[string]bool, error) {
-	known := map[string]bool{}
-	for _, r := range rules {
-		known[r.name] = true
-	}
-	for _, n := range append(append([]string{}, enable...), disable...) {
-		if !known[n] {
-			return nil, fmt.Errorf("unknown rule %q (see --list-rules)", n)
-		}
-	}
-
-	enabled := map[string]bool{}
-	if len(enable) == 0 {
-		for n := range known {
-			enabled[n] = true
-		}
-	}
-	for _, n := range enable {
-		enabled[n] = true
-	}
-	for _, n := range disable {
-		delete(enabled, n)
-	}
-	return enabled, nil
 }

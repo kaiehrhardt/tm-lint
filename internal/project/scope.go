@@ -1,4 +1,4 @@
-package main
+package project
 
 import (
 	"fmt"
@@ -8,21 +8,23 @@ import (
 
 	"github.com/terramate-io/hcl/v2"
 	"github.com/terramate-io/hcl/v2/hclsyntax"
+
+	"github.com/kaiehrhardt/tm-lint/internal/hclutil"
 )
 
-// scope limits which findings are reported. The whole project is always
-// loaded, so imports, globals from parent directories and stack references
-// resolve exactly as when linting everything.
-type scope struct {
-	path  string // project path, e.g. /stacks/a or /stacks/a/stack.tm.hcl
-	isDir bool
+// Scope is a part of the project whose findings are reported. The whole
+// project is always loaded, so imports, globals from parent directories and
+// stack references resolve exactly as when linting everything.
+type Scope struct {
+	Path  string // project path, e.g. /stacks/a or /stacks/a/stack.tm.hcl
+	IsDir bool
 }
 
-// detectRoot finds the Terramate project root for start the same way
+// DetectRoot finds the Terramate project root for start the same way
 // Terramate does: the nearest directory at or above start whose Terramate
 // files contain `terramate { required_version = ... }`. Without one, the
 // nearest git repository root is used, and failing that start itself.
-func detectRoot(start string) (string, error) {
+func DetectRoot(start string) (string, error) {
 	abs, err := filepath.Abs(start)
 	if err != nil {
 		return "", err
@@ -63,7 +65,7 @@ func hasRootConfig(dir string) bool {
 		return false
 	}
 	for _, e := range entries {
-		if e.IsDir() || !isTerramateFile(e.Name()) {
+		if e.IsDir() || !hclutil.IsTerramateFile(e.Name()) {
 			continue
 		}
 		src, err := os.ReadFile(filepath.Join(dir, e.Name()))
@@ -86,11 +88,12 @@ func hasRootConfig(dir string) bool {
 	return false
 }
 
-// resolveScopes turns the given paths into scopes inside the project root.
-func resolveScopes(root string, paths []string) ([]scope, error) {
-	var out []scope
-	for _, p := range paths {
-		abs, err := filepath.Abs(p)
+// ResolveScopes turns host paths (relative to the working directory) into
+// scopes inside the project root.
+func (p *Project) ResolveScopes(paths []string) ([]Scope, error) {
+	var out []Scope
+	for _, path := range paths {
+		abs, err := filepath.Abs(path)
 		if err != nil {
 			return nil, err
 		}
@@ -98,46 +101,36 @@ func resolveScopes(root string, paths []string) ([]scope, error) {
 		if err != nil {
 			return nil, err
 		}
-		rel, err := filepath.Rel(root, abs)
+		rel, err := filepath.Rel(p.Root, abs)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return nil, fmt.Errorf("%s is outside the project root %s", p, root)
+			return nil, fmt.Errorf("%s is outside the project root %s", path, p.Root)
 		}
 		pp := "/"
 		if rel != "." {
 			pp = "/" + filepath.ToSlash(rel)
 		}
-		out = append(out, scope{path: pp, isDir: fi.IsDir()})
+		out = append(out, Scope{Path: pp, IsDir: fi.IsDir()})
 	}
 	return out, nil
 }
 
-// inScope reports whether a finding belongs to one of the scopes: its file is
-// inside a scope, or the file is imported into a scope directory (an imported
-// file's content is evaluated in the importing directory).
-func (p *project) inScope(f finding, scopes []scope) bool {
-	file := "/" + p.relFile(f.file)
+// InScope reports whether file belongs to one of the scopes: it is inside a
+// scope, or it is imported into a scope directory (an imported file's content
+// is evaluated in the importing directory).
+func (p *Project) InScope(file string, scopes []Scope) bool {
+	pp := "/" + p.RelFile(file)
 	for _, s := range scopes {
-		if s.path == "/" || file == s.path || (s.isDir && strings.HasPrefix(file, s.path+"/")) {
+		if s.Path == "/" || pp == s.Path || (s.IsDir && strings.HasPrefix(pp, s.Path+"/")) {
 			return true
 		}
-		if !s.isDir || len(p.imports[f.file]) == 0 {
+		if !s.IsDir || !p.IsImported(file) {
 			continue
 		}
-		for _, ctx := range p.contexts(f.file) {
-			if isAncestorDir(s.path, ctx) {
+		for _, ctx := range p.Contexts(file) {
+			if IsAncestorDir(s.Path, ctx) {
 				return true
 			}
 		}
 	}
 	return false
-}
-
-func filterScope(p *project, findings []finding, scopes []scope) []finding {
-	var out []finding
-	for _, f := range findings {
-		if p.inScope(f, scopes) {
-			out = append(out, f)
-		}
-	}
-	return out
 }

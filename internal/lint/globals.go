@@ -1,4 +1,4 @@
-package main
+package lint
 
 import (
 	"fmt"
@@ -6,6 +6,9 @@ import (
 
 	"github.com/terramate-io/hcl/v2"
 	"github.com/terramate-io/hcl/v2/hclsyntax"
+
+	"github.com/kaiehrhardt/tm-lint/internal/hclutil"
+	"github.com/kaiehrhardt/tm-lint/internal/project"
 )
 
 type globalDef struct {
@@ -22,21 +25,18 @@ type globalUse struct {
 	guarded bool // inside a tm_try/tm_can argument that has a fallback
 }
 
+// globalIndex holds every global definition and every global reference of a
+// project.
 type globalIndex struct {
 	defs []globalDef
 	uses []globalUse
 }
 
-var globalIdxCache = map[*project]*globalIndex{}
-
-func (p *project) globals() *globalIndex {
-	if idx, ok := globalIdxCache[p]; ok {
-		return idx
-	}
+func buildGlobalIndex(p *project.Project) *globalIndex {
 	idx := &globalIndex{}
-	for _, file := range p.files {
-		body := p.bodies[file]
-		for _, attr := range sortedAttrs(body) {
+	for _, file := range p.Files {
+		body := p.Bodies[file]
+		for _, attr := range hclutil.SortedAttrs(body) {
 			idx.collectUses(file, attr.Expr, -1)
 		}
 		for _, blk := range body.Blocks {
@@ -47,13 +47,12 @@ func (p *project) globals() *globalIndex {
 			idx.collectBody(file, blk.Body, -1)
 		}
 	}
-	globalIdxCache[p] = idx
 	return idx
 }
 
 func (idx *globalIndex) collectGlobalsBlock(file string, blk *hclsyntax.Block) {
 	labels := blk.Labels
-	attrs := sortedAttrs(blk.Body)
+	attrs := hclutil.SortedAttrs(blk.Body)
 
 	if len(labels) > 0 && len(attrs) == 0 && len(blk.Body.Blocks) == 0 {
 		// `globals "a" "b" {}` creates an (empty) object at global.a.b
@@ -62,7 +61,7 @@ func (idx *globalIndex) collectGlobalsBlock(file string, blk *hclsyntax.Block) {
 
 	for _, attr := range attrs {
 		id := len(idx.defs)
-		idx.defs = append(idx.defs, globalDef{path: appendPath(labels, attr.Name), file: file, rng: attr.NameRange})
+		idx.defs = append(idx.defs, globalDef{path: hclutil.AppendPath(labels, attr.Name), file: file, rng: attr.NameRange})
 		idx.collectUses(file, attr.Expr, id)
 	}
 
@@ -72,13 +71,13 @@ func (idx *globalIndex) collectGlobalsBlock(file string, blk *hclsyntax.Block) {
 			continue
 		}
 		id := len(idx.defs)
-		idx.defs = append(idx.defs, globalDef{path: appendPath(labels, sub.Labels[0]), file: file, rng: sub.DefRange()})
+		idx.defs = append(idx.defs, globalDef{path: hclutil.AppendPath(labels, sub.Labels[0]), file: file, rng: sub.DefRange()})
 		idx.collectBody(file, sub.Body, id)
 	}
 }
 
 func (idx *globalIndex) collectBody(file string, body *hclsyntax.Body, owner int) {
-	for _, attr := range sortedAttrs(body) {
+	for _, attr := range hclutil.SortedAttrs(body) {
 		idx.collectUses(file, attr.Expr, owner)
 	}
 	for _, blk := range body.Blocks {
@@ -93,13 +92,13 @@ func (idx *globalIndex) collectUses(file string, expr hclsyntax.Expression, owne
 		if !ok || st.Traversal.RootName() != "global" {
 			return nil
 		}
-		gpath, _ := traversalPath(st.Traversal)
+		gpath, _ := hclutil.TraversalPath(st.Traversal)
 		idx.uses = append(idx.uses, globalUse{
 			path:    gpath,
 			file:    file,
 			rng:     st.SrcRange,
 			owner:   owner,
-			guarded: containedIn(st.SrcRange, guards),
+			guarded: containedInAny(st.SrcRange, guards),
 		})
 		return nil
 	})
@@ -130,32 +129,34 @@ func guardedRanges(expr hclsyntax.Expression) []hcl.Range {
 	return out
 }
 
-func containedIn(r hcl.Range, ranges []hcl.Range) bool {
+func containedInAny(r hcl.Range, ranges []hcl.Range) bool {
 	for _, g := range ranges {
-		if r.Start.Byte >= g.Start.Byte && r.End.Byte <= g.End.Byte {
+		if hclutil.Contains(g, r) {
 			return true
 		}
 	}
 	return false
 }
 
-// related reports whether a definition and a use can see each other: their
-// paths overlap (one is a prefix of the other) and their directories lie on
-// the same branch of the tree. Globals are inherited downwards, and
-// expressions in a parent directory are evaluated in the context of each
-// stack below it, so both directions count.
-func (p *project) globalRelated(d globalDef, u globalUse) bool {
-	if !isPrefix(u.path, d.path) && !isPrefix(d.path, u.path) {
-		return false
-	}
-	return dirsRelated(p.contexts(d.file), p.contexts(u.file))
+// visible reports whether a definition and a use can see each other: their
+// directories lie on the same branch of the tree. Globals are inherited
+// downwards, and expressions in a parent directory are evaluated in the
+// context of each stack below it, so both directions count.
+func (c *checker) visible(d globalDef, u globalUse) bool {
+	return project.DirsRelated(c.p.Contexts(d.file), c.p.Contexts(u.file))
 }
 
-func ruleUnusedGlobal(p *project, opts *options) []finding {
-	idx := p.globals()
-	var out []finding
+// pathsOverlap reports whether one global path is a prefix of the other:
+// global.a covers global.a.b and vice versa.
+func pathsOverlap(a, b []string) bool {
+	return hclutil.IsPrefix(a, b) || hclutil.IsPrefix(b, a)
+}
+
+func ruleUnusedGlobal(c *checker) []Finding {
+	idx := c.globals()
+	var out []Finding
 	for id, d := range idx.defs {
-		if matchesGlobalPattern(d.path, opts.ignoreGlobals) {
+		if matchesGlobalPattern(d.path, c.opts.IgnoreGlobals) {
 			continue
 		}
 		used := false
@@ -163,18 +164,18 @@ func ruleUnusedGlobal(p *project, opts *options) []finding {
 			if u.owner == id {
 				continue // a global referencing itself (e.g. overriding a parent value)
 			}
-			if p.globalRelated(d, u) {
+			if pathsOverlap(d.path, u.path) && c.visible(d, u) {
 				used = true
 				break
 			}
 		}
 		if !used {
-			out = append(out, finding{
-				rule:   "unused-global",
-				file:   d.file,
-				rng:    d.rng,
-				msg:    fmt.Sprintf("global.%s is never used", strings.Join(d.path, ".")),
-				global: d.path,
+			out = append(out, Finding{
+				Rule:   "unused-global",
+				File:   d.file,
+				Range:  d.rng,
+				Msg:    fmt.Sprintf("global.%s is never used", strings.Join(d.path, ".")),
+				Global: d.path,
 			})
 		}
 	}
@@ -189,11 +190,11 @@ func ruleUnusedGlobal(p *project, opts *options) []finding {
 // when nothing at all is defined under the root name (the fallback is always
 // used, likely a typo or a leftover), or when the missing name looks like a
 // typo of a defined sibling.
-func ruleUndefinedGlobal(p *project, opts *options) []finding {
-	idx := p.globals()
-	var out []finding
+func ruleUndefinedGlobal(c *checker) []Finding {
+	idx := c.globals()
+	var out []Finding
 	for _, u := range idx.uses {
-		if len(u.path) == 0 || matchesGlobalPattern(u.path, opts.ignoreGlobals) {
+		if len(u.path) == 0 || matchesGlobalPattern(u.path, c.opts.IgnoreGlobals) {
 			continue // `global` as a whole or fully dynamic access
 		}
 
@@ -201,14 +202,14 @@ func ruleUndefinedGlobal(p *project, opts *options) []finding {
 		// `x = global.x` needs x from somewhere else.
 		var visible []globalDef
 		for id, d := range idx.defs {
-			if id != u.owner && dirsRelated(p.contexts(d.file), p.contexts(u.file)) {
+			if id != u.owner && c.visible(d, u) {
 				visible = append(visible, d)
 			}
 		}
 
 		defined := false
 		for _, d := range visible {
-			if isPrefix(u.path, d.path) || isPrefix(d.path, u.path) {
+			if pathsOverlap(u.path, d.path) {
 				defined = true
 				break
 			}
@@ -234,9 +235,9 @@ func ruleUndefinedGlobal(p *project, opts *options) []finding {
 			continue // optional field with a default
 		}
 		if suggestion != "" {
-			msg += fmt.Sprintf(", did you mean global.%s?", strings.Join(appendPath(u.path[:level], suggestion), "."))
+			msg += fmt.Sprintf(", did you mean global.%s?", strings.Join(hclutil.AppendPath(u.path[:level], suggestion), "."))
 		}
-		out = append(out, finding{rule: "undefined-global", file: u.file, rng: u.rng, msg: msg, global: u.path})
+		out = append(out, Finding{Rule: "undefined-global", File: u.file, Range: u.rng, Msg: msg, Global: u.path})
 	}
 	return out
 }
@@ -248,7 +249,7 @@ func knownLevel(gpath []string, visible []globalDef) (int, []string) {
 	for level < len(gpath)-1 {
 		found := false
 		for _, d := range visible {
-			if isPrefix(gpath[:level+1], d.path) {
+			if hclutil.IsPrefix(gpath[:level+1], d.path) {
 				found = true
 				break
 			}
@@ -261,7 +262,7 @@ func knownLevel(gpath []string, visible []globalDef) (int, []string) {
 	seen := map[string]bool{}
 	var names []string
 	for _, d := range visible {
-		if len(d.path) > level && isPrefix(gpath[:level], d.path) && !seen[d.path[level]] {
+		if len(d.path) > level && hclutil.IsPrefix(gpath[:level], d.path) && !seen[d.path[level]] {
 			seen[d.path[level]] = true
 			names = append(names, d.path[level])
 		}

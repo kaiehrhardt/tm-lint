@@ -1,19 +1,21 @@
-package main
+package lint
 
 import (
 	"fmt"
 
 	"github.com/terramate-io/hcl/v2"
 	"github.com/terramate-io/hcl/v2/hclsyntax"
+
+	"github.com/kaiehrhardt/tm-lint/internal/hclutil"
 )
 
 // ruleUnusedLet checks every block that contains `lets` blocks (generate_hcl,
 // generate_file, ...): lets are only visible inside that block, so each let
 // must be referenced somewhere in it.
-func ruleUnusedLet(p *project, _ *options) []finding {
-	var out []finding
-	for _, file := range p.files {
-		for _, blk := range p.bodies[file].Blocks {
+func ruleUnusedLet(c *checker) []Finding {
+	var out []Finding
+	for _, file := range c.p.Files {
+		for _, blk := range c.p.Bodies[file].Blocks {
 			out = append(out, unusedLetsIn(file, blk)...)
 		}
 	}
@@ -23,23 +25,23 @@ func ruleUnusedLet(p *project, _ *options) []finding {
 type letDef struct {
 	name  string
 	rng   hcl.Range
-	owner hclsyntax.Node // the attribute or map block defining it
+	owner hcl.Range // range of the attribute or map block defining it
 }
 
-func unusedLetsIn(file string, blk *hclsyntax.Block) []finding {
-	var out []finding
+func unusedLetsIn(file string, blk *hclsyntax.Block) []Finding {
+	var out []Finding
 
 	var defs []letDef
 	for _, sub := range blk.Body.Blocks {
 		if sub.Type != "lets" {
 			continue
 		}
-		for _, attr := range sortedAttrs(sub.Body) {
-			defs = append(defs, letDef{name: attr.Name, rng: attr.NameRange, owner: attr})
+		for _, attr := range hclutil.SortedAttrs(sub.Body) {
+			defs = append(defs, letDef{name: attr.Name, rng: attr.NameRange, owner: attr.SrcRange})
 		}
 		for _, m := range sub.Body.Blocks {
 			if m.Type == "map" && len(m.Labels) > 0 {
-				defs = append(defs, letDef{name: m.Labels[0], rng: m.DefRange(), owner: m})
+				defs = append(defs, letDef{name: m.Labels[0], rng: m.DefRange(), owner: m.Range()})
 			}
 		}
 	}
@@ -52,13 +54,13 @@ func unusedLetsIn(file string, blk *hclsyntax.Block) []finding {
 			if !ok || st.Traversal.RootName() != "let" {
 				return nil
 			}
-			gpath, _ := traversalPath(st.Traversal)
-			if len(gpath) == 0 {
+			path, _ := hclutil.TraversalPath(st.Traversal)
+			if len(path) == 0 {
 				usesAll = true // `let` as a whole or dynamic access
 				return nil
 			}
 			for _, d := range defs {
-				if d.name == gpath[0] && !nodeContains(d.owner, st.SrcRange) {
+				if d.name == path[0] && !hclutil.Contains(d.owner, st.SrcRange) {
 					used[d.name] = true
 				}
 			}
@@ -67,11 +69,11 @@ func unusedLetsIn(file string, blk *hclsyntax.Block) []finding {
 		if !usesAll {
 			for _, d := range defs {
 				if !used[d.name] {
-					out = append(out, finding{
-						rule: "unused-let",
-						file: file,
-						rng:  d.rng,
-						msg:  fmt.Sprintf("let.%s is never used in %s", d.name, blockName(blk)),
+					out = append(out, Finding{
+						Rule:  "unused-let",
+						File:  file,
+						Range: d.rng,
+						Msg:   fmt.Sprintf("let.%s is never used in %s", d.name, blockName(blk)),
 					})
 				}
 			}
@@ -84,19 +86,6 @@ func unusedLetsIn(file string, blk *hclsyntax.Block) []finding {
 		}
 	}
 	return out
-}
-
-func nodeContains(n hclsyntax.Node, r hcl.Range) bool {
-	var outer hcl.Range
-	switch v := n.(type) {
-	case *hclsyntax.Attribute:
-		outer = v.SrcRange
-	case *hclsyntax.Block:
-		outer = v.Range()
-	default:
-		return false
-	}
-	return r.Start.Byte >= outer.Start.Byte && r.End.Byte <= outer.End.Byte
 }
 
 func blockName(b *hclsyntax.Block) string {
