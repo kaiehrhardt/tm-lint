@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -24,7 +26,7 @@ func TestExample(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := formatFindings(p, lint(p, opts, enabled))
+	got := formatFindings(p.root, lint(p, opts, enabled))
 
 	const golden = "testdata/example.expected"
 	if *update {
@@ -143,5 +145,72 @@ func TestIgnoreFile(t *testing.T) {
 	}
 	if _, err := loadIgnoreFile(dir+"/missing", false); err != nil {
 		t.Errorf("missing default ignore file must be fine, got %v", err)
+	}
+}
+
+func TestDetectRoot(t *testing.T) {
+	want, err := filepath.Abs("testdata/example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, start := range []string{
+		"testdata/example",
+		"testdata/example/stacks/a",
+		"testdata/example/stacks/a/stack.tm.hcl",
+	} {
+		got, err := detectRoot(start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("detectRoot(%q) = %q, want %q", start, got, want)
+		}
+	}
+}
+
+// TestScope lints only stacks/a: its own findings are reported, findings in
+// files imported into it (imports/common.tm.hcl) too, everything else not.
+// Globals and imports still resolve against the whole project.
+func TestScope(t *testing.T) {
+	p, err := loadProject("testdata/example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled, err := selectRules("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts, err := newOptions(p, os.DevNull, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopes, err := resolveScopes(p.root, []string{"testdata/example/stacks/a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := formatFindings(p.root, filterScope(p, lint(p, opts, enabled), scopes))
+
+	for _, want := range []string{
+		"stacks/a/stack.tm.hcl:3:33: [invalid-stack-ref]",
+		"stacks/a/stack.tm.hcl:17:40: [undefined-global] global.sibling_only is not defined",
+		"imports/common.tm.hcl:3:3: [unused-global] global.import_unused is never used",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
+		if !strings.HasPrefix(line, "stacks/a/") && !strings.HasPrefix(line, "imports/common.tm.hcl:") {
+			t.Errorf("finding outside scope: %s", line)
+		}
+	}
+	// region is defined in the root globals.tm.hcl, outside the scope; the
+	// stack must still see it.
+	if strings.Contains(got, "global.region is not defined") {
+		t.Errorf("globals from parent directories must resolve:\n%s", got)
+	}
+
+	if _, err := resolveScopes(p.root, []string{"testdata"}); err == nil {
+		t.Error("a path outside the project root must be an error")
 	}
 }

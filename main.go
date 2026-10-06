@@ -2,7 +2,10 @@
 //
 // Usage:
 //
-//	tm-lint [flags] [project-root]
+//	tm-lint [flags] [path ...]
+//
+// The whole project is always loaded; only findings in the given paths (and
+// in files imported into them) are reported.
 //
 // Exit codes: 0 = no findings, 1 = findings, 2 = error.
 package main
@@ -11,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -19,9 +23,11 @@ func main() {
 	disableFlag := flag.String("disable", "", "comma-separated rules to skip")
 	ignoreGlobals := flag.String("ignore-globals", "", "comma-separated global paths the global rules ignore; a trailing '*' matches everything below (e.g. 'global.ci.*,global.tags')")
 	ignoreFile := flag.String("ignore-file", "", "ignore file to use (default: "+defaultIgnoreFile+" in the project root, if present)")
+	rootFlag := flag.String("root", "", "Terramate project root (default: detected like Terramate does, from the first path upwards)")
 	listRules := flag.Bool("list-rules", false, "print the available rules and exit")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: %s [flags] [project-root]\n\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: %s [flags] [path ...]\n\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "Lints the whole Terramate project, but only reports findings in the given\npaths (default: the current directory) and in files imported into them.\n\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(flag.CommandLine.Output(), "\nSuppress a finding with a comment on its line or the line above:\n  # %s [rule, ...]\n", ignoreMarker)
 		fmt.Fprintf(flag.CommandLine.Output(), "\nor with an entry in %s in the project root:\n  [rule,...] <path-glob | global.path>\n", defaultIgnoreFile)
@@ -40,11 +46,23 @@ func main() {
 		fatal(err)
 	}
 
-	root := "."
-	if flag.NArg() > 0 {
-		root = flag.Arg(0)
+	paths := flag.Args()
+	if len(paths) == 0 {
+		paths = []string{"."}
+	}
+
+	root := *rootFlag
+	if root == "" {
+		root, err = detectRoot(paths[0])
+		if err != nil {
+			fatal(err)
+		}
 	}
 	p, err := loadProject(root)
+	if err != nil {
+		fatal(err)
+	}
+	scopes, err := resolveScopes(p.root, paths)
 	if err != nil {
 		fatal(err)
 	}
@@ -54,17 +72,28 @@ func main() {
 		fatal(err)
 	}
 
-	findings := lint(p, opts, enabled)
-	fmt.Print(formatFindings(p, findings))
+	findings := filterScope(p, lint(p, opts, enabled), scopes)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		fatal(err)
+	}
+	fmt.Print(formatFindings(cwd, findings))
 	if len(findings) > 0 {
 		os.Exit(1)
 	}
 }
 
-func formatFindings(p *project, findings []finding) string {
+// formatFindings prints file paths relative to base (the working directory),
+// so editors and CI can jump to them.
+func formatFindings(base string, findings []finding) string {
 	var sb strings.Builder
 	for _, f := range findings {
-		fmt.Fprintf(&sb, "%s:%d:%d: [%s] %s\n", p.relFile(f.file), f.rng.Start.Line, f.rng.Start.Column, f.rule, f.msg)
+		file, err := filepath.Rel(base, f.file)
+		if err != nil {
+			file = f.file
+		}
+		fmt.Fprintf(&sb, "%s:%d:%d: [%s] %s\n", filepath.ToSlash(file), f.rng.Start.Line, f.rng.Start.Column, f.rule, f.msg)
 	}
 	return sb.String()
 }

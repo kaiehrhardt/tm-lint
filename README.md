@@ -25,8 +25,9 @@ Dependencies: only Terramate's HCL fork (`github.com/terramate-io/hcl/v2`, the s
 ## Usage
 
 ```sh
-tm-lint [flags] [project-root]       # project-root defaults to .
+tm-lint [flags] [path ...]           # path defaults to the current directory
 
+  -root path                         Terramate project root (default: detected, see below)
   -list-rules                        show the available rules
   -enable  rule1,rule2               run only these rules (default: all)
   -disable rule1,rule2               skip these rules
@@ -34,7 +35,23 @@ tm-lint [flags] [project-root]       # project-root defaults to .
   -ignore-file path                  ignore file (default: .tmlintignore in the project root, if present)
 ```
 
-Run it from the project root, because absolute paths (`/imports/...`, `/stacks/...`) are resolved relative to it.
+File paths in the output are relative to the current working directory.
+
+### Linting a subfolder
+
+tm-lint always loads the **whole project**, so imports, globals from parent directories and stack references resolve exactly as when linting everything. The paths you pass only limit which findings are **reported**:
+
+```sh
+tm-lint                          # everything below the current directory
+tm-lint stacks/prod stacks/stg   # only these folders
+tm-lint stacks/prod/stack.tm.hcl # only this file
+
+cd stacks/prod && tm-lint        # same as `tm-lint stacks/prod` from the root
+```
+
+A finding is reported if its file is inside one of the paths, or if the file is imported into one of them. For example, an unused global in `/imports/common.tm.hcl` shows up when linting a stack that imports it.
+
+The project root is detected the same way Terramate does it: starting at the first path, tm-lint walks upwards to the nearest directory whose Terramate files contain `terramate { required_version = ... }`. Without such a directory, it uses the nearest git repository root, and failing that, the path itself. Use `-root` to set it explicitly. The `.tmlintignore` is always read from the project root.
 
 ### Suppressing findings
 
