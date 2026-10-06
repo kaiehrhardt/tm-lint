@@ -77,7 +77,7 @@ func loadIgnoreFile(path string, required bool) (*ignoreFile, error) {
 					continue
 				}
 				if !known[r] {
-					return nil, fmt.Errorf("%s:%d: unknown rule %q (see -list-rules)", path, lineNo, r)
+					return nil, fmt.Errorf("%s:%d: unknown rule %q (see --list-rules)", path, lineNo, r)
 				}
 				entry.rules[r] = true
 			}

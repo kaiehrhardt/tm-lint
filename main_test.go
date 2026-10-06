@@ -18,7 +18,7 @@ func TestExample(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enabled, err := selectRules("", "")
+	enabled, err := selectRules(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enabled, err := selectRules("", "")
+	enabled, err := selectRules(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

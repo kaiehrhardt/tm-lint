@@ -20,22 +20,35 @@ go build -o tm-lint .
 go test ./...
 ```
 
-Dependencies: only Terramate's HCL fork (`github.com/terramate-io/hcl/v2`, the same version Terramate itself uses) and `go-cty`.
+Dependencies: Terramate's HCL fork (`github.com/terramate-io/hcl/v2`, the same version Terramate itself uses), `go-cty`, and [cobra](https://github.com/spf13/cobra) / [viper](https://github.com/spf13/viper) for the CLI.
 
 ## Usage
 
 ```sh
-tm-lint [flags] [path ...]           # path defaults to the current directory
-
-  -root path                         Terramate project root (default: detected, see below)
-  -list-rules                        show the available rules
-  -enable  rule1,rule2               run only these rules (default: all)
-  -disable rule1,rule2               skip these rules
-  -ignore-globals 'global.ci.*,...'  globals ignored by unused-/undefined-global
-  -ignore-file path                  ignore file (default: .tmlintignore in the project root, if present)
+tm-lint [path ...] [flags]           # path defaults to the current directory
 ```
 
-File paths in the output are relative to the current working directory.
+| Flag | Environment variable | Description |
+|---|---|---|
+| `--root path` | `TM_LINT_ROOT` | Terramate project root (default: detected, see below) |
+| `--enable rule,...` | `TM_LINT_ENABLE` | run only these rules (default: all) |
+| `--disable rule,...` | `TM_LINT_DISABLE` | skip these rules |
+| `--ignore-globals pattern,...` | `TM_LINT_IGNORE_GLOBALS` | globals ignored by `unused-global`/`undefined-global`, e.g. `global.ci.*` |
+| `--ignore-file path` | `TM_LINT_IGNORE_FILE` | ignore file (default: `.tmlintignore` in the project root, if present) |
+| `--list-rules` | `TM_LINT_LIST_RULES` | print the available rules and exit |
+| `[path ...]` | `TM_LINT_PATHS` | paths whose findings are reported (default: current directory) |
+
+- **Lists:** list flags accept comma-separated values or can be repeated (`--enable a,b` or `--enable a --enable b`). In environment variables, lists are comma- or space-separated.
+- **Precedence:** a flag wins over its environment variable, and positional paths win over `TM_LINT_PATHS`.
+- **Output:** file paths are relative to the current working directory.
+- **Shell completion:** `tm-lint completion bash|zsh|fish|powershell` prints a completion script. Because `completion` and `help` are subcommands, pass a folder with one of these names as `./completion`.
+
+```sh
+# CI: the same configuration via environment variables
+export TM_LINT_DISABLE=unused-let
+export TM_LINT_IGNORE_GLOBALS="global.ci.* global.tags"
+tm-lint stacks/prod
+```
 
 ### Linting a subfolder
 
@@ -51,7 +64,7 @@ cd stacks/prod && tm-lint        # same as `tm-lint stacks/prod` from the root
 
 A finding is reported if its file is inside one of the paths, or if the file is imported into one of them. For example, an unused global in `/imports/common.tm.hcl` shows up when linting a stack that imports it.
 
-The project root is detected the same way Terramate does it: starting at the first path, tm-lint walks upwards to the nearest directory whose Terramate files contain `terramate { required_version = ... }`. Without such a directory, it uses the nearest git repository root, and failing that, the path itself. Use `-root` to set it explicitly. The `.tmlintignore` is always read from the project root.
+The project root is detected the same way Terramate does it: starting at the first path, tm-lint walks upwards to the nearest directory whose Terramate files contain `terramate { required_version = ... }`. Without such a directory, it uses the nearest git repository root, and failing that, the path itself. Use `--root` (or `TM_LINT_ROOT`) to set it explicitly. The `.tmlintignore` is always read from the project root.
 
 ### Suppressing findings
 
@@ -70,7 +83,7 @@ globals {
 
 #### `.tmlintignore`
 
-A `.tmlintignore` file in the project root is read automatically. Use `-ignore-file` to point to a different file; an explicitly given file must exist.
+A `.tmlintignore` file in the project root is read automatically. Use `--ignore-file` (or `TM_LINT_IGNORE_FILE`) to point to a different file; an explicitly given file must exist.
 
 One entry per line, `#` starts a comment:
 
