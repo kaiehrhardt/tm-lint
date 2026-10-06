@@ -18,11 +18,13 @@ func main() {
 	enableFlag := flag.String("enable", "", "comma-separated rules to run (default: all)")
 	disableFlag := flag.String("disable", "", "comma-separated rules to skip")
 	ignoreGlobals := flag.String("ignore-globals", "", "comma-separated global paths the global rules ignore; a trailing '*' matches everything below (e.g. 'global.ci.*,global.tags')")
+	ignoreFile := flag.String("ignore-file", "", "ignore file to use (default: "+defaultIgnoreFile+" in the project root, if present)")
 	listRules := flag.Bool("list-rules", false, "print the available rules and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "usage: %s [flags] [project-root]\n\n", os.Args[0])
 		flag.PrintDefaults()
 		fmt.Fprintf(flag.CommandLine.Output(), "\nSuppress a finding with a comment on its line or the line above:\n  # %s [rule, ...]\n", ignoreMarker)
+		fmt.Fprintf(flag.CommandLine.Output(), "\nor with an entry in %s in the project root:\n  [rule,...] <path-glob | global.path>\n", defaultIgnoreFile)
 	}
 	flag.Parse()
 
@@ -47,7 +49,12 @@ func main() {
 		fatal(err)
 	}
 
-	findings := lint(p, &options{ignoreGlobals: parseGlobalPatterns(*ignoreGlobals)}, enabled)
+	opts, err := newOptions(p, *ignoreFile, *ignoreGlobals)
+	if err != nil {
+		fatal(err)
+	}
+
+	findings := lint(p, opts, enabled)
 	fmt.Print(formatFindings(p, findings))
 	if len(findings) > 0 {
 		os.Exit(1)

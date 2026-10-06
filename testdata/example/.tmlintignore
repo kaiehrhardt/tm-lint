@@ -1,0 +1,16 @@
+# Example ignore file, read from the project root by tm-lint.
+#
+#   <target>                     suppress all rules for target
+#   <rule>[,<rule>...] <target>  suppress only the listed rules
+#
+# A target is a path glob relative to the project root (a directory covers
+# everything below it, ** spans directories) or a global path (global.ci.*).
+
+# Legacy stack that is being decommissioned.
+stacks/c
+
+# Read by CI via `terramate get-config-value`.
+unused-global global.ci_token
+
+# Stack a reads a global set by its sibling on purpose (to be refactored).
+undefined-global stacks/a/*.tm.hcl

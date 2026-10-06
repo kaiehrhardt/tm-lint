@@ -20,7 +20,11 @@ func TestExample(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := formatFindings(p, lint(p, &options{ignoreGlobals: parseGlobalPatterns("global.net.optional_*")}, enabled))
+	opts, err := newOptions(p, "", "global.net.optional_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := formatFindings(p, lint(p, opts, enabled))
 
 	const golden = "testdata/example.expected"
 	if *update {
@@ -69,5 +73,75 @@ func TestLevenshtein(t *testing.T) {
 	}
 	if got := closestName("app", []string{"abc"}); got != "" {
 		t.Errorf("short names must only match at distance 1, got %q", got)
+	}
+}
+
+func TestGlobToRegexp(t *testing.T) {
+	cases := []struct {
+		glob, path string
+		want       bool
+	}{
+		{"stacks/c", "stacks/c/stack.tm.hcl", true},
+		{"stacks/c", "stacks/cc/stack.tm.hcl", false},
+		{"/stacks/c/", "stacks/c/x/y.tm", true},
+		{"stacks/*.tm.hcl", "stacks/a.tm.hcl", true},
+		{"stacks/*.tm.hcl", "stacks/a/b.tm.hcl", false},
+		{"stacks/**/*.tm.hcl", "stacks/a.tm.hcl", true},
+		{"stacks/**/*.tm.hcl", "stacks/a/b/c.tm.hcl", true},
+		{"**/legacy", "x/y/legacy/stack.tm.hcl", true},
+		{"**/legacy", "legacy/stack.tm.hcl", true},
+		{"imports/common.tm.hcl", "imports/common.tm.hcl", true},
+		{"a.b", "axb", false},
+	}
+	for _, c := range cases {
+		re, err := globToRegexp(c.glob)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := re.MatchString(c.path); got != c.want {
+			t.Errorf("glob %q on %q = %v, want %v", c.glob, c.path, got, c.want)
+		}
+	}
+}
+
+func TestIgnoreFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(content string) string {
+		path := dir + "/ignore"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	ign, err := loadIgnoreFile(write("unused-let,unused-global legacy  # trailing comment\nglobal.ci.*\n"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		f    finding
+		rel  string
+		want bool
+	}{
+		{finding{rule: "unused-let"}, "legacy/a.tm", true},
+		{finding{rule: "invalid-stack-ref"}, "legacy/a.tm", false},
+		{finding{rule: "undefined-global", global: []string{"ci", "token"}}, "x.tm", true},
+		{finding{rule: "undefined-global", global: []string{"cix"}}, "x.tm", false},
+		{finding{rule: "invalid-stack-ref"}, "x.tm", false},
+	}
+	for _, c := range cases {
+		if got := ign.matches(c.f, c.rel); got != c.want {
+			t.Errorf("matches(%+v, %q) = %v, want %v", c.f, c.rel, got, c.want)
+		}
+	}
+
+	if _, err := loadIgnoreFile(write("no-such-rule foo\n"), true); err == nil {
+		t.Error("unknown rule must be an error")
+	}
+	if _, err := loadIgnoreFile(dir+"/missing", true); err == nil {
+		t.Error("missing explicit ignore file must be an error")
+	}
+	if _, err := loadIgnoreFile(dir+"/missing", false); err != nil {
+		t.Errorf("missing default ignore file must be fine, got %v", err)
 	}
 }

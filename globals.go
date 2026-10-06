@@ -170,10 +170,11 @@ func ruleUnusedGlobal(p *project, opts *options) []finding {
 		}
 		if !used {
 			out = append(out, finding{
-				rule: "unused-global",
-				file: d.file,
-				rng:  d.rng,
-				msg:  fmt.Sprintf("global.%s is never used", strings.Join(d.path, ".")),
+				rule:   "unused-global",
+				file:   d.file,
+				rng:    d.rng,
+				msg:    fmt.Sprintf("global.%s is never used", strings.Join(d.path, ".")),
+				global: d.path,
 			})
 		}
 	}
@@ -235,7 +236,7 @@ func ruleUndefinedGlobal(p *project, opts *options) []finding {
 		if suggestion != "" {
 			msg += fmt.Sprintf(", did you mean global.%s?", strings.Join(appendPath(u.path[:level], suggestion), "."))
 		}
-		out = append(out, finding{rule: "undefined-global", file: u.file, rng: u.rng, msg: msg})
+		out = append(out, finding{rule: "undefined-global", file: u.file, rng: u.rng, msg: msg, global: u.path})
 	}
 	return out
 }

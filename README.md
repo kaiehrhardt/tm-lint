@@ -31,11 +31,16 @@ tm-lint [flags] [project-root]       # project-root defaults to .
   -enable  rule1,rule2               run only these rules (default: all)
   -disable rule1,rule2               skip these rules
   -ignore-globals 'global.ci.*,...'  globals ignored by unused-/undefined-global
+  -ignore-file path                  ignore file (default: .tmlintignore in the project root, if present)
 ```
 
 Run it from the project root, because absolute paths (`/imports/...`, `/stacks/...`) are resolved relative to it.
 
 ### Suppressing findings
+
+There are two ways to suppress findings, and both can be combined.
+
+#### Inline comments
 
 A comment on the same line or the line above suppresses findings, either for all rules or only for the rules listed:
 
@@ -45,6 +50,34 @@ globals {
   ci_token = "..."   # only read by `terramate get-config-value` in CI
 }
 ```
+
+#### `.tmlintignore`
+
+A `.tmlintignore` file in the project root is read automatically. Use `-ignore-file` to point to a different file; an explicitly given file must exist.
+
+One entry per line, `#` starts a comment:
+
+```
+<target>                       suppress all rules for target
+<rule>[,<rule>...] <target>    suppress only the listed rules
+```
+
+A target is either
+- a **path glob** relative to the project root: `*` matches within a directory, `**` spans directories, and a directory matches everything below it, or
+- a **global path** like `global.ci_token` or `global.ci.*`, which applies to the findings of `unused-global` and `undefined-global`.
+
+```
+# Legacy stacks that are being decommissioned.
+stacks/legacy
+
+# Read by CI via `terramate get-config-value`.
+unused-global global.ci.*
+
+# Generated components are checked upstream.
+unused-let,undefined-global components/**/*.tm.hcl
+```
+
+Unknown rule names or invalid lines are an error (exit code `2`), so typos in the ignore file do not go unnoticed. See `testdata/example/.tmlintignore` for a complete example.
 
 ## Rules
 

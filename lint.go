@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -15,10 +16,11 @@ import (
 const ignoreMarker = "tm-lint:ignore"
 
 type finding struct {
-	rule string
-	file string // absolute path
-	rng  hcl.Range
-	msg  string
+	rule   string
+	file   string // absolute path
+	rng    hcl.Range
+	msg    string
+	global []string // global path the finding is about, if any
 }
 
 type rule struct {
@@ -29,6 +31,21 @@ type rule struct {
 
 type options struct {
 	ignoreGlobals [][]string
+	ignore        *ignoreFile
+}
+
+// newOptions builds the lint options. ignoreFile is the path given with
+// -ignore-file; empty means the optional .tmlintignore in the project root.
+func newOptions(p *project, ignoreFilePath, ignoreGlobals string) (*options, error) {
+	required := ignoreFilePath != ""
+	if !required {
+		ignoreFilePath = filepath.Join(p.root, defaultIgnoreFile)
+	}
+	ign, err := loadIgnoreFile(ignoreFilePath, required)
+	if err != nil {
+		return nil, err
+	}
+	return &options{ignoreGlobals: parseGlobalPatterns(ignoreGlobals), ignore: ign}, nil
 }
 
 var rules = []rule{
@@ -45,7 +62,7 @@ func lint(p *project, opts *options, enabled map[string]bool) []finding {
 			continue
 		}
 		for _, f := range r.run(p, opts) {
-			if !p.suppressed(f) {
+			if !p.suppressed(f) && !opts.ignore.matches(f, p.relFile(f.file)) {
 				out = append(out, f)
 			}
 		}
