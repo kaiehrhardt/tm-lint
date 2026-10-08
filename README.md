@@ -66,7 +66,7 @@ tm-lint stacks/prod
   ```yaml
   # .gitlab-ci.yml
   tm-lint:
-    image: golang:1.24
+    image: golang:1.27
     script:
       - go run github.com/kaiehrhardt/tm-lint@latest --format gitlab . > gl-code-quality-report.json
     artifacts:
