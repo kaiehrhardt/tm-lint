@@ -21,6 +21,13 @@ func runCLI(t *testing.T, env map[string]string, args ...string) (string, error)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
+	// cobra treats a nil args slice as "not set" and falls back to the real
+	// os.Args, which picks up e.g. `go test -update`; args is nil here
+	// whenever a case passes none, since a variadic call with zero elements
+	// yields nil, not an empty slice.
+	if args == nil {
+		args = []string{}
+	}
 	cmd.SetArgs(args)
 	err := cmd.Execute()
 	return out.String(), err
