@@ -75,7 +75,7 @@ func TestCLIFlagsAndEnv(t *testing.T) {
 		},
 		{
 			name:  "disable env, comma and space separated",
-			env:   map[string]string{"TM_LINT_DISABLE": "unused-global,undefined-global invalid-stack-ref"},
+			env:   map[string]string{"TM_LINT_DISABLE": "unused-global,undefined-global invalid-stack-ref,shadowed-global"},
 			args:  []string{example},
 			rules: []string{"unused-let"},
 		},

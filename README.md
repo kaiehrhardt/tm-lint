@@ -157,6 +157,33 @@ A global that is defined but never used anywhere it would be visible.
 - **Imports:** the content of an imported file also applies in every directory importing it, transitively.
 - **Self-references:** an override like `region = "${global.region}-c"` counts as a use of the parent value, not as a use of itself.
 
+### `shadowed-global`
+
+A global that is read somewhere, but every read resolves to a more specific override defined closer to it, so this particular definition's value is never actually used. Typically a root default that every stack below it overrides:
+
+```hcl
+# globals.tm.hcl
+globals {
+  region = "eu-west-1"   # shadowed-global: every stack below overrides it
+}
+```
+
+```hcl
+# stacks/a/stack.tm.hcl
+globals {
+  region = "us-east-1"   # this is the value generate_hcl below actually reads
+}
+generate_hcl "main.tf" {
+  content {
+    region = global.region
+  }
+}
+```
+
+- Only the override must use the exact same global path; overriding just one field of an object (`net.cidr`) does not shadow a sibling field (`net.other`).
+- Only the common direction is checked: a definition read from its own directory or below. A global read from one of its *own* definition's ancestors (an expression in a parent directory, inherited back down into a descendant stack) is conservatively treated as used, without checking whether that read is itself shadowed.
+- As soon as at least one reachable read is not shadowed (e.g. one stack does not override), the definition counts as used.
+
 ### `undefined-global`
 
 A global that is referenced but not defined anywhere it would be visible. The same hierarchy and import rules apply as for `unused-global`. If a similarly named global exists, the finding includes a "did you mean" suggestion.
@@ -186,7 +213,7 @@ A `let` in a `lets` block (e.g. in `generate_hcl`/`generate_file`) that is never
 
 - **No full validation:** the tool only parses files, it does not load the complete Terramate configuration. It complements `terramate fmt --check` and `terramate generate` followed by `git diff --exit-code`, it does not replace them.
 - **Other file types:** references outside `.tm`/`.tm.hcl` files are not detected, e.g. `terramate get-config-value` in shell scripts. Use the suppression options for those.
-- **Shadowing:** a root global that is overridden in every child directory is not reported as dead.
+- **Shadowing:** `shadowed-global` only catches an override with the exact same global path, and only checks the "defined above, read at or below" direction; see its section above for both.
 - **Hierarchy in `undefined-global`:** a global used in a parent `generate_hcl` but defined in only *some* of the stacks below counts as defined.
 - **Non-literal stack attributes:** `stack` attributes that are not literal lists are skipped.
 

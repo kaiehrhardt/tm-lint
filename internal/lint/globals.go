@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/terramate-io/hcl/v2"
@@ -180,6 +181,105 @@ func ruleUnusedGlobal(c *checker) []Finding {
 		}
 	}
 	return out
+}
+
+// dirDepth returns the number of path segments of a project directory path
+// such as "/" (0) or "/stacks/a" (2).
+func dirDepth(dir string) int {
+	dir = strings.Trim(dir, "/")
+	if dir == "" {
+		return 0
+	}
+	return strings.Count(dir, "/") + 1
+}
+
+// deepestAncestor returns the depth of the deepest directory in dirs that is
+// an ancestor of, or equal to, target, or -1 if none is. Among several
+// definitions visible at target, the one with the deepest (most specific)
+// directory is the one Terramate actually uses.
+func deepestAncestor(dirs []string, target string) int {
+	best := -1
+	for _, d := range dirs {
+		if project.IsAncestorDir(d, target) {
+			if n := dirDepth(d); n > best {
+				best = n
+			}
+		}
+	}
+	return best
+}
+
+// ruleShadowedGlobal reports a global definition whose value is never the one
+// actually read: every read it is visible to instead resolves to a more
+// specific override defined closer to it, so this particular definition is
+// dead even though the global's name is used somewhere.
+//
+// Only the common direction is checked: a definition read from a directory
+// at or below it. A definition that is also read from one of its own
+// ancestors (an expression in a parent directory, inherited back down into a
+// descendant stack) is conservatively treated as used without checking
+// whether that read, too, is shadowed; see "Known limitations" in the
+// README.
+func ruleShadowedGlobal(c *checker) []Finding {
+	idx := c.globals()
+	var out []Finding
+	for id, d := range idx.defs {
+		if matchesGlobalPattern(d.path, c.opts.IgnoreGlobals) {
+			continue
+		}
+		cds := c.p.Contexts(d.file)
+
+		reverseUsed := false
+		forwardSeen := false
+		forwardUnshadowed := false
+		for _, u := range idx.uses {
+			if u.owner == id || !pathsOverlap(d.path, u.path) {
+				continue
+			}
+			for _, cu := range c.p.Contexts(u.file) {
+				depth := deepestAncestor(cds, cu)
+				if depth < 0 {
+					for _, cd := range cds {
+						if cd != cu && project.IsAncestorDir(cu, cd) {
+							reverseUsed = true
+						}
+					}
+					continue
+				}
+				forwardSeen = true
+				if !shadowedAt(c, idx, id, d.path, cu, depth) {
+					forwardUnshadowed = true
+				}
+			}
+		}
+
+		if reverseUsed || forwardUnshadowed || !forwardSeen {
+			continue
+		}
+		out = append(out, Finding{
+			Rule:   "shadowed-global",
+			File:   d.file,
+			Range:  d.rng,
+			Msg:    fmt.Sprintf("global.%s is always overridden before it is read, this definition is never used", strings.Join(d.path, ".")),
+			Global: d.path,
+		})
+	}
+	return out
+}
+
+// shadowedAt reports whether some other definition of exactly path has a
+// directory strictly closer to target than depth, the depth of the
+// definition excludeID is being checked for.
+func shadowedAt(c *checker, idx *globalIndex, excludeID int, path []string, target string, depth int) bool {
+	for id2, d2 := range idx.defs {
+		if id2 == excludeID || !slices.Equal(d2.path, path) {
+			continue
+		}
+		if n := deepestAncestor(c.p.Contexts(d2.file), target); n > depth {
+			return true
+		}
+	}
+	return false
 }
 
 // ruleUndefinedGlobal reports references to globals that no visible

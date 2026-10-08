@@ -3,6 +3,7 @@ globals.tm.hcl:14:3: [unused-global] global.net.unused_child is never used
 globals.tm.hcl:29:3: [unused-global] global.users is never used
 globals.tm.hcl:45:3: [unused-global] global.self_only is never used
 globals.tm.hcl:45:15: [undefined-global] global.self_only is not defined
+globals.tm.hcl:49:3: [shadowed-global] global.shadowed_root is always overridden before it is read, this definition is never used
 imports/common.tm.hcl:3:3: [unused-global] global.import_unused is never used
 stacks/a/stack.tm.hcl:3:33: [invalid-stack-ref] stack.after entry "/stacks/nope" does not exist (Terramate only warns at run time and ignores it)
 stacks/a/stack.tm.hcl:3:49: [invalid-stack-ref] stack.after entry "/imports" contains no stacks (silently ignored by Terramate)

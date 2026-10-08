@@ -44,3 +44,7 @@ generate_hcl "root.tf" {
 globals {
   self_only = global.self_only
 }
+
+globals {
+  shadowed_root = "root"
+}

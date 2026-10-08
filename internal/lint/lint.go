@@ -40,6 +40,7 @@ type Rule struct {
 // Rules are all available rules, in the order they run.
 var Rules = []Rule{
 	{"unused-global", "global is defined but never referenced where it is visible", ruleUnusedGlobal},
+	{"shadowed-global", "global is read somewhere, but always through a more specific override", ruleShadowedGlobal},
 	{"undefined-global", "global is referenced but not defined anywhere it would be visible", ruleUndefinedGlobal},
 	{"invalid-stack-ref", "after/before/wants/wanted_by entry matches no stack", ruleInvalidStackRef},
 	{"unused-let", "let is defined in a block but never referenced in it", ruleUnusedLet},
