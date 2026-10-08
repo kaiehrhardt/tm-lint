@@ -15,10 +15,16 @@ Exit codes: `0` = no findings, `1` = findings, `2` = error (e.g. a parse error).
 ## Installation
 
 ```sh
-go mod tidy
-go build -o tm-lint .
-go test ./...
+go install github.com/kaiehrhardt/tm-lint@latest
 ```
+
+Or as a container image (`linux/amd64` and `linux/arm64`), with the project mounted at `/work`:
+
+```sh
+docker run --rm -v "$PWD:/work" ghcr.io/kaiehrhardt/tm-lint:latest
+```
+
+Images are tagged with the full version (`1.2.3`), `1.2`, `1` and `latest`. `tm-lint --version` prints the version.
 
 Dependencies: Terramate's HCL fork (`github.com/terramate-io/hcl/v2`, the same version Terramate itself uses), `go-cty`, and [cobra](https://github.com/spf13/cobra) / [viper](https://github.com/spf13/viper) for the CLI.
 
@@ -66,9 +72,11 @@ tm-lint stacks/prod
   ```yaml
   # .gitlab-ci.yml
   tm-lint:
-    image: golang:1.27
+    image:
+      name: ghcr.io/kaiehrhardt/tm-lint:1
+      entrypoint: [""]
     script:
-      - go run github.com/kaiehrhardt/tm-lint@latest --format gitlab . > gl-code-quality-report.json
+      - tm-lint --format gitlab . > gl-code-quality-report.json
     artifacts:
       reports:
         codequality: gl-code-quality-report.json
@@ -227,6 +235,7 @@ The layout follows the [official Go recommendation for a command with supporting
 ├── format.go               output formatting: text, json, sarif, gitlab
 ├── *_test.go               CLI and end-to-end tests against testdata/
 ├── testdata/               example project and its expected output
+├── Dockerfile              release image, built by .github/workflows/release.yml
 └── internal/
     ├── project/            loads a Terramate project: files, imports, stacks,
     │                       evaluation contexts, root detection, scopes
@@ -238,6 +247,13 @@ The layout follows the [official Go recommendation for a command with supporting
 go test ./...           # all tests
 go test -update .       # rewrite testdata/example.expected after intentional changes
 ```
+
+### CI and releases
+
+- **Pull requests** (`.github/workflows/ci.yml`): gofmt, `go mod tidy -diff`, `go vet`, `go test -race`, and a multi-arch image build without pushing.
+- **Releases** (`.github/workflows/release.yml`): every push to `main` runs the same checks, then [semantic-release](https://semantic-release.gitbook.io/) derives the next version from the commit messages since the last tag, creates the `vX.Y.Z` tag and GitHub release, and pushes the image to `ghcr.io/kaiehrhardt/tm-lint`.
+
+Commit messages therefore follow [Conventional Commits](https://www.conventionalcommits.org/): `fix:` makes a patch release, `feat:` a minor release, a `BREAKING CHANGE:` footer (or `feat!:`) a major release; `docs:`, `chore:`, `test:` etc. release nothing. With squash merges, the PR title becomes that commit message.
 
 ### Adding rules
 

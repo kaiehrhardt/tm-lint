@@ -311,3 +311,17 @@ func TestCLIHelpMentionsEnv(t *testing.T) {
 		}
 	}
 }
+
+func TestCLIVersion(t *testing.T) {
+	old := version
+	version = "v1.2.3"
+	t.Cleanup(func() { version = old })
+
+	out, err := runCLI(t, nil, "--version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "v1.2.3") {
+		t.Errorf("got %q, want it to contain v1.2.3", out)
+	}
+}

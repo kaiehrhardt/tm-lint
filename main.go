@@ -15,7 +15,24 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 )
+
+// version is set by release builds via -ldflags "-X main.version=v1.2.3".
+var version string
+
+// buildVersion returns the version tm-lint reports for --version: the one
+// set at build time, else the module version `go install ...@v1.2.3`
+// records, else "dev".
+func buildVersion() string {
+	if version != "" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return "dev"
+}
 
 func main() {
 	if err := newRootCmd().Execute(); err != nil {

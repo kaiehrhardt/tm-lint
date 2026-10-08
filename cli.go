@@ -60,6 +60,7 @@ Exit codes: 0 = no findings, 1 = findings, 2 = error.`,
   tm-lint --format sarif . > tm-lint.sarif # SARIF for GitHub code scanning
   tm-lint --format gitlab . > gl-code-quality-report.json # GitLab Code Quality
   TM_LINT_ENABLE=unused-global tm-lint     # same flags as environment variables`,
+		Version:       buildVersion(),
 		Args:          cobra.ArbitraryArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
