@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -171,6 +172,8 @@ func TestCLIErrors(t *testing.T) {
 		{"unknown rule env", map[string]string{"TM_LINT_DISABLE": "nope"}, []string{"testdata/example"}, `unknown rule "nope"`},
 		{"unknown flag", nil, []string{"--nope"}, "unknown flag"},
 		{"missing ignore file", map[string]string{"TM_LINT_IGNORE_FILE": "does-not-exist"}, []string{"testdata/example"}, "does-not-exist"},
+		{"unknown format flag", nil, []string{"--format", "bogus", "testdata/example"}, `unknown format "bogus"`},
+		{"unknown format env", map[string]string{"TM_LINT_FORMAT": "bogus"}, []string{"testdata/example"}, `unknown format "bogus"`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -179,6 +182,73 @@ func TestCLIErrors(t *testing.T) {
 				t.Errorf("want error containing %q, got %v", c.want, err)
 			}
 		})
+	}
+}
+
+func TestCLIFormatJSON(t *testing.T) {
+	out, err := runCLI(t, nil, "--format", "json", "--enable", "unused-let", "testdata/example")
+	if !errors.Is(err, errFindings) {
+		t.Fatalf("want errFindings, got %v\n%s", err, out)
+	}
+
+	var findings []jsonFinding
+	if err := json.Unmarshal([]byte(out), &findings); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(findings) == 0 {
+		t.Fatalf("no findings decoded\n%s", out)
+	}
+	for _, f := range findings {
+		if f.Rule != "unused-let" {
+			t.Errorf("rule = %q, want unused-let", f.Rule)
+		}
+		if f.File == "" || f.Message == "" || f.Line == 0 || f.Column == 0 {
+			t.Errorf("incomplete finding: %+v", f)
+		}
+	}
+}
+
+func TestCLIFormatJSONNoFindings(t *testing.T) {
+	out, err := runCLI(t, nil, "--format", "json", "--enable", "unused-let", "testdata/example/stacks/a")
+	if err != nil {
+		t.Fatalf("want no error, got %v\n%s", err, out)
+	}
+	if strings.TrimSpace(out) != "[]" {
+		t.Errorf("got %q, want an empty JSON array", out)
+	}
+}
+
+func TestCLIFormatSarif(t *testing.T) {
+	out, err := runCLI(t, nil, "--format", "sarif", "--enable", "unused-let", "testdata/example")
+	if !errors.Is(err, errFindings) {
+		t.Fatalf("want errFindings, got %v\n%s", err, out)
+	}
+
+	var log sarifLog
+	if err := json.Unmarshal([]byte(out), &log); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if log.Version != "2.1.0" {
+		t.Errorf("version = %q, want 2.1.0", log.Version)
+	}
+	if len(log.Runs) != 1 {
+		t.Fatalf("runs = %d, want 1", len(log.Runs))
+	}
+	run := log.Runs[0]
+	if len(run.Tool.Driver.Rules) != len(lint.Rules) {
+		t.Errorf("driver declares %d rules, want %d (all of them)", len(run.Tool.Driver.Rules), len(lint.Rules))
+	}
+	if len(run.Results) == 0 {
+		t.Fatalf("no results decoded\n%s", out)
+	}
+	for _, r := range run.Results {
+		if r.RuleID != "unused-let" {
+			t.Errorf("ruleId = %q, want unused-let", r.RuleID)
+		}
+		loc := r.Locations[0].PhysicalLocation
+		if loc.ArtifactLocation.URI == "" || loc.Region.StartLine == 0 {
+			t.Errorf("incomplete location: %+v", loc)
+		}
 	}
 }
 

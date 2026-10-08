@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -29,6 +28,7 @@ const (
 	keyIgnoreGlobals = "ignore-globals"
 	keyIgnoreFile    = "ignore-file"
 	keyListRules     = "list-rules"
+	keyFormat        = "format"
 	keyPaths         = "paths"
 )
 
@@ -57,6 +57,7 @@ Exit codes: 0 = no findings, 1 = findings, 2 = error.`,
 		Example: `  tm-lint                                  # lint below the current directory
   tm-lint stacks/prod stacks/stg           # only these folders
   tm-lint --disable unused-let             # skip a rule
+  tm-lint --format sarif . > tm-lint.sarif # SARIF for GitHub code scanning
   TM_LINT_ENABLE=unused-global tm-lint     # same flags as environment variables`,
 		Args:          cobra.ArbitraryArgs,
 		SilenceUsage:  true,
@@ -73,6 +74,7 @@ Exit codes: 0 = no findings, 1 = findings, 2 = error.`,
 	f.StringSlice(keyIgnoreGlobals, nil, "global paths ignored by unused-global and undefined-global; a trailing '*' matches everything below (e.g. global.ci.*)")
 	f.String(keyIgnoreFile, "", "ignore file (default: "+lint.DefaultIgnoreFile+" in the project root, if present)")
 	f.Bool(keyListRules, false, "print the available rules and exit")
+	f.String(keyFormat, formatText, "output format: "+formatText+", "+formatJSON+" or "+formatSarif)
 	if err := v.BindPFlags(f); err != nil {
 		panic(err) // only fails for a nil flag set
 	}
@@ -106,6 +108,11 @@ func run(out io.Writer, v *viper.Viper, args []string) error {
 			fmt.Fprintf(out, "%-18s %s\n", r.Name, r.Doc)
 		}
 		return nil
+	}
+
+	format := v.GetString(keyFormat)
+	if !outputFormats[format] {
+		return fmt.Errorf("unknown format %q (want %s, %s or %s)", format, formatText, formatJSON, formatSarif)
 	}
 
 	enabled, err := lint.SelectRules(listValue(v, keyEnable), listValue(v, keyDisable))
@@ -147,7 +154,11 @@ func run(out io.Writer, v *viper.Viper, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprint(out, formatFindings(cwd, findings))
+	rendered, err := render(format, cwd, findings)
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(out, rendered)
 	if len(findings) > 0 {
 		return errFindings
 	}
@@ -166,18 +177,4 @@ func listValue(v *viper.Viper, key string) []string {
 		}
 	}
 	return out
-}
-
-// formatFindings prints file paths relative to base (the working directory),
-// so editors and CI can jump to them.
-func formatFindings(base string, findings []lint.Finding) string {
-	var sb strings.Builder
-	for _, f := range findings {
-		file, err := filepath.Rel(base, f.File)
-		if err != nil {
-			file = f.File
-		}
-		fmt.Fprintf(&sb, "%s:%d:%d: [%s] %s\n", filepath.ToSlash(file), f.Range.Start.Line, f.Range.Start.Column, f.Rule, f.Msg)
-	}
-	return sb.String()
 }
