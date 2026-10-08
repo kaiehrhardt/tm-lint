@@ -183,7 +183,8 @@ The layout follows the [official Go recommendation for a command with supporting
 
 ```
 .
-├── main.go, cli.go         command: cobra/viper CLI, output formatting
+├── main.go, cli.go         command: cobra/viper CLI, flag wiring
+├── format.go               output formatting: text, json, sarif
 ├── *_test.go               CLI and end-to-end tests against testdata/
 ├── testdata/               example project and its expected output
 └── internal/
