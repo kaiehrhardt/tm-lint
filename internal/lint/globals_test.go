@@ -126,3 +126,68 @@ globals {
 		t.Errorf("got %v, want no findings for a reverse (ancestor-reads-descendant) use", got)
 	}
 }
+
+// TestShadowedGlobalSelfReference checks that an override reading the parent
+// value (region = "${global.region}-c") counts as a read of that parent, so
+// the parent is not reported as shadowed.
+func TestShadowedGlobalSelfReference(t *testing.T) {
+	p := writeProject(t, map[string]string{
+		"globals.tm.hcl": `
+globals {
+  region = "eu-west-1"
+}
+`,
+		"stacks/a/stack.tm.hcl": `
+stack {}
+
+globals {
+  region = "${global.region}-c"
+}
+
+generate_hcl "main.tf" {
+  content {
+    r = global.region
+  }
+}
+`,
+	})
+	if got := messages(t, p, nil, "shadowed-global"); len(got) != 0 {
+		t.Errorf("got %v, want no findings: the override reads the root value", got)
+	}
+}
+
+// TestShadowedGlobalSelfReferenceSkipsLevel checks that a self-referencing
+// override reads the nearest definition above it, so a root default hidden
+// behind an intermediate override is still reported.
+func TestShadowedGlobalSelfReferenceSkipsLevel(t *testing.T) {
+	p := writeProject(t, map[string]string{
+		"globals.tm.hcl": `
+globals {
+  region = "eu-west-1"
+}
+`,
+		"stacks/globals.tm.hcl": `
+globals {
+  region = "us-east-1"
+}
+`,
+		"stacks/a/stack.tm.hcl": `
+stack {}
+
+globals {
+  region = "${global.region}-c"
+}
+
+generate_hcl "main.tf" {
+  content {
+    r = global.region
+  }
+}
+`,
+	})
+	got := messages(t, p, nil, "shadowed-global")
+	want := []string{"globals.tm.hcl:3: global.region is always overridden before it is read, this definition is never used"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

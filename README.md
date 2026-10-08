@@ -33,7 +33,7 @@ tm-lint [path ...] [flags]           # path defaults to the current directory
 | `--root path` | `TM_LINT_ROOT` | Terramate project root (default: detected, see below) |
 | `--enable rule,...` | `TM_LINT_ENABLE` | run only these rules (default: all) |
 | `--disable rule,...` | `TM_LINT_DISABLE` | skip these rules |
-| `--ignore-globals pattern,...` | `TM_LINT_IGNORE_GLOBALS` | globals ignored by `unused-global`/`undefined-global`, e.g. `global.ci.*` |
+| `--ignore-globals pattern,...` | `TM_LINT_IGNORE_GLOBALS` | globals ignored by `unused-global`/`shadowed-global`/`undefined-global`, e.g. `global.ci.*` |
 | `--ignore-file path` | `TM_LINT_IGNORE_FILE` | ignore file (default: `.tmlintignore` in the project root, if present) |
 | `--list-rules` | `TM_LINT_LIST_RULES` | print the available rules and exit |
 | `--format text\|json\|sarif\|gitlab` | `TM_LINT_FORMAT` | output format (default: `text`) |

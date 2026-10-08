@@ -72,7 +72,7 @@ Exit codes: 0 = no findings, 1 = findings, 2 = error.`,
 	f.String(keyRoot, "", "Terramate project root (default: detected like Terramate does, from the first path upwards)")
 	f.StringSlice(keyEnable, nil, "rules to run, comma-separated or repeated (default: all)")
 	f.StringSlice(keyDisable, nil, "rules to skip, comma-separated or repeated")
-	f.StringSlice(keyIgnoreGlobals, nil, "global paths ignored by unused-global and undefined-global; a trailing '*' matches everything below (e.g. global.ci.*)")
+	f.StringSlice(keyIgnoreGlobals, nil, "global paths ignored by unused-global, shadowed-global and undefined-global; a trailing '*' matches everything below (e.g. global.ci.*)")
 	f.String(keyIgnoreFile, "", "ignore file (default: "+lint.DefaultIgnoreFile+" in the project root, if present)")
 	f.Bool(keyListRules, false, "print the available rules and exit")
 	f.String(keyFormat, formatText, "output format: "+formatText+", "+formatJSON+", "+formatSarif+" or "+formatGitLab)

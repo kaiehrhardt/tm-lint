@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -246,8 +247,18 @@ func ruleShadowedGlobal(c *checker) []Finding {
 					}
 					continue
 				}
+				// A self-referencing override such as
+				// region = "${global.region}-c" reads the value from above
+				// its own definition, so only overrides strictly between
+				// d and that owner can shadow d for this read.
+				limit := math.MaxInt
+				if u.owner >= 0 && slices.Equal(idx.defs[u.owner].path, d.path) {
+					if n := deepestAncestor(c.p.Contexts(idx.defs[u.owner].file), cu); n >= 0 {
+						limit = n
+					}
+				}
 				forwardSeen = true
-				if !shadowedAt(c, idx, id, d.path, cu, depth) {
+				if !shadowedAt(c, idx, id, d.path, cu, depth, limit) {
 					forwardUnshadowed = true
 				}
 			}
@@ -269,13 +280,14 @@ func ruleShadowedGlobal(c *checker) []Finding {
 
 // shadowedAt reports whether some other definition of exactly path has a
 // directory strictly closer to target than depth, the depth of the
-// definition excludeID is being checked for.
-func shadowedAt(c *checker, idx *globalIndex, excludeID int, path []string, target string, depth int) bool {
+// definition excludeID is being checked for, but strictly above limit, the
+// depth from which the read only sees values defined above it.
+func shadowedAt(c *checker, idx *globalIndex, excludeID int, path []string, target string, depth, limit int) bool {
 	for id2, d2 := range idx.defs {
 		if id2 == excludeID || !slices.Equal(d2.path, path) {
 			continue
 		}
-		if n := deepestAncestor(c.p.Contexts(d2.file), target); n > depth {
+		if n := deepestAncestor(c.p.Contexts(d2.file), target); n > depth && n < limit {
 			return true
 		}
 	}
