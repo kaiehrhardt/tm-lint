@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/kaiehrhardt/tm-lint/internal/lint"
@@ -11,13 +14,14 @@ import (
 
 // Output format names accepted by --format.
 const (
-	formatText  = "text"
-	formatJSON  = "json"
-	formatSarif = "sarif"
+	formatText   = "text"
+	formatJSON   = "json"
+	formatSarif  = "sarif"
+	formatGitLab = "gitlab"
 )
 
 // outputFormats are the valid values for --format.
-var outputFormats = map[string]bool{formatText: true, formatJSON: true, formatSarif: true}
+var outputFormats = map[string]bool{formatText: true, formatJSON: true, formatSarif: true, formatGitLab: true}
 
 // render formats findings as format. base is the working directory file
 // paths are made relative to.
@@ -29,8 +33,10 @@ func render(format, base string, findings []lint.Finding) (string, error) {
 		return renderJSON(base, findings)
 	case formatSarif:
 		return renderSarif(base, findings)
+	case formatGitLab:
+		return renderGitLab(base, findings)
 	default:
-		return "", fmt.Errorf("unknown format %q (want %s, %s or %s)", format, formatText, formatJSON, formatSarif)
+		return "", fmt.Errorf("unknown format %q (want %s, %s, %s or %s)", format, formatText, formatJSON, formatSarif, formatGitLab)
 	}
 }
 
@@ -194,4 +200,56 @@ func renderSarif(base string, findings []lint.Finding) (string, error) {
 		return "", err
 	}
 	return string(b) + "\n", nil
+}
+
+// gitlabIssue is one entry in the --format gitlab output: a subset of the
+// Code Climate format GitLab's Code Quality widget reads. See
+// https://docs.gitlab.com/ci/testing/code_quality/#integrate-common-tools-with-code-quality
+type gitlabIssue struct {
+	Description string         `json:"description"`
+	CheckName   string         `json:"check_name"`
+	Fingerprint string         `json:"fingerprint"`
+	Severity    string         `json:"severity"`
+	Location    gitlabLocation `json:"location"`
+}
+
+type gitlabLocation struct {
+	Path  string      `json:"path"`
+	Lines gitlabLines `json:"lines"`
+}
+
+type gitlabLines struct {
+	Begin int `json:"begin"`
+}
+
+// renderGitLab renders findings as a GitLab Code Quality report: a JSON
+// array, "[]" when there are none. All findings get severity "major"; tm-lint
+// does not distinguish severities. The fingerprint is a hash of the rule,
+// file, line and message, so the same finding keeps the same fingerprint
+// across runs and GitLab can track it as unchanged instead of a new issue.
+func renderGitLab(base string, findings []lint.Finding) (string, error) {
+	out := make([]gitlabIssue, 0, len(findings))
+	for _, f := range findings {
+		file := relFile(base, f.File)
+		out = append(out, gitlabIssue{
+			Description: f.Msg,
+			CheckName:   f.Rule,
+			Fingerprint: gitlabFingerprint(f.Rule, file, f.Range.Start.Line, f.Msg),
+			Severity:    "major",
+			Location: gitlabLocation{
+				Path:  file,
+				Lines: gitlabLines{Begin: f.Range.Start.Line},
+			},
+		})
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b) + "\n", nil
+}
+
+func gitlabFingerprint(rule, file string, line int, msg string) string {
+	h := sha256.Sum256([]byte(rule + "\x00" + file + "\x00" + strconv.Itoa(line) + "\x00" + msg))
+	return hex.EncodeToString(h[:])
 }

@@ -36,7 +36,7 @@ tm-lint [path ...] [flags]           # path defaults to the current directory
 | `--ignore-globals pattern,...` | `TM_LINT_IGNORE_GLOBALS` | globals ignored by `unused-global`/`undefined-global`, e.g. `global.ci.*` |
 | `--ignore-file path` | `TM_LINT_IGNORE_FILE` | ignore file (default: `.tmlintignore` in the project root, if present) |
 | `--list-rules` | `TM_LINT_LIST_RULES` | print the available rules and exit |
-| `--format text\|json\|sarif` | `TM_LINT_FORMAT` | output format (default: `text`) |
+| `--format text\|json\|sarif\|gitlab` | `TM_LINT_FORMAT` | output format (default: `text`) |
 | `[path ...]` | `TM_LINT_PATHS` | paths whose findings are reported (default: current directory) |
 
 - **Lists:** list flags accept comma-separated values or can be repeated (`--enable a,b` or `--enable a --enable b`). In environment variables, lists are comma- or space-separated.
@@ -57,11 +57,24 @@ tm-lint stacks/prod
 - **`json`**: an array of findings, `[]` when there are none, each with `rule`, `file`, `line`, `column`, `endLine`, `endColumn` and `message`.
 - **`sarif`**: a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/sarif-v2.1.0-os.html) log with one run, for tools that consume it, e.g. [GitHub code scanning](https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/sarif-support-for-code-scanning#uploading-a-sarif-file-to-github):
 
-```sh
-tm-lint --format sarif . > tm-lint.sarif
-```
+  ```sh
+  tm-lint --format sarif . > tm-lint.sarif
+  ```
 
-Exit codes are unaffected by `--format`: `1` on findings, `2` on errors, even for `json`/`sarif`, so CI steps that only look at the exit code keep working.
+- **`gitlab`**: a [GitLab Code Quality report](https://docs.gitlab.com/ci/testing/code_quality/#integrate-common-tools-with-code-quality) (every finding reported as severity `major`; tm-lint has no severity levels):
+
+  ```yaml
+  # .gitlab-ci.yml
+  tm-lint:
+    image: golang:1.24
+    script:
+      - go run github.com/kaiehrhardt/tm-lint@latest --format gitlab . > gl-code-quality-report.json
+    artifacts:
+      reports:
+        codequality: gl-code-quality-report.json
+  ```
+
+Exit codes are unaffected by `--format`: `1` on findings, `2` on errors, even for `json`/`sarif`/`gitlab`, so CI steps that only look at the exit code keep working. In the GitLab example above, `script` fails the job on findings; add `|| true` to the `tm-lint` line if you want the report uploaded without failing the pipeline.
 
 ### Linting a subfolder
 
@@ -184,7 +197,7 @@ The layout follows the [official Go recommendation for a command with supporting
 ```
 .
 ├── main.go, cli.go         command: cobra/viper CLI, flag wiring
-├── format.go               output formatting: text, json, sarif
+├── format.go               output formatting: text, json, sarif, gitlab
 ├── *_test.go               CLI and end-to-end tests against testdata/
 ├── testdata/               example project and its expected output
 └── internal/

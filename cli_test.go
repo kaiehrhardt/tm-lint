@@ -252,6 +252,47 @@ func TestCLIFormatSarif(t *testing.T) {
 	}
 }
 
+func TestCLIFormatGitLab(t *testing.T) {
+	out, err := runCLI(t, nil, "--format", "gitlab", "--enable", "unused-let", "testdata/example")
+	if !errors.Is(err, errFindings) {
+		t.Fatalf("want errFindings, got %v\n%s", err, out)
+	}
+
+	var issues []gitlabIssue
+	if err := json.Unmarshal([]byte(out), &issues); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	if len(issues) == 0 {
+		t.Fatalf("no issues decoded\n%s", out)
+	}
+	seen := map[string]bool{}
+	for _, iss := range issues {
+		if iss.CheckName != "unused-let" {
+			t.Errorf("check_name = %q, want unused-let", iss.CheckName)
+		}
+		if iss.Severity != "major" {
+			t.Errorf("severity = %q, want major", iss.Severity)
+		}
+		if iss.Description == "" || iss.Location.Path == "" || iss.Location.Lines.Begin == 0 {
+			t.Errorf("incomplete issue: %+v", iss)
+		}
+		if iss.Fingerprint == "" || seen[iss.Fingerprint] {
+			t.Errorf("fingerprint missing or duplicate: %+v", iss)
+		}
+		seen[iss.Fingerprint] = true
+	}
+}
+
+func TestCLIFormatGitLabNoFindings(t *testing.T) {
+	out, err := runCLI(t, nil, "--format", "gitlab", "--enable", "unused-let", "testdata/example/stacks/a")
+	if err != nil {
+		t.Fatalf("want no error, got %v\n%s", err, out)
+	}
+	if strings.TrimSpace(out) != "[]" {
+		t.Errorf("got %q, want an empty JSON array", out)
+	}
+}
+
 func TestCLIHelpMentionsEnv(t *testing.T) {
 	out, err := runCLI(t, nil, "--help")
 	if err != nil {

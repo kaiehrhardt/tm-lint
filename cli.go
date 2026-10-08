@@ -58,6 +58,7 @@ Exit codes: 0 = no findings, 1 = findings, 2 = error.`,
   tm-lint stacks/prod stacks/stg           # only these folders
   tm-lint --disable unused-let             # skip a rule
   tm-lint --format sarif . > tm-lint.sarif # SARIF for GitHub code scanning
+  tm-lint --format gitlab . > gl-code-quality-report.json # GitLab Code Quality
   TM_LINT_ENABLE=unused-global tm-lint     # same flags as environment variables`,
 		Args:          cobra.ArbitraryArgs,
 		SilenceUsage:  true,
@@ -74,7 +75,7 @@ Exit codes: 0 = no findings, 1 = findings, 2 = error.`,
 	f.StringSlice(keyIgnoreGlobals, nil, "global paths ignored by unused-global and undefined-global; a trailing '*' matches everything below (e.g. global.ci.*)")
 	f.String(keyIgnoreFile, "", "ignore file (default: "+lint.DefaultIgnoreFile+" in the project root, if present)")
 	f.Bool(keyListRules, false, "print the available rules and exit")
-	f.String(keyFormat, formatText, "output format: "+formatText+", "+formatJSON+" or "+formatSarif)
+	f.String(keyFormat, formatText, "output format: "+formatText+", "+formatJSON+", "+formatSarif+" or "+formatGitLab)
 	if err := v.BindPFlags(f); err != nil {
 		panic(err) // only fails for a nil flag set
 	}
@@ -112,7 +113,7 @@ func run(out io.Writer, v *viper.Viper, args []string) error {
 
 	format := v.GetString(keyFormat)
 	if !outputFormats[format] {
-		return fmt.Errorf("unknown format %q (want %s, %s or %s)", format, formatText, formatJSON, formatSarif)
+		return fmt.Errorf("unknown format %q (want %s, %s, %s or %s)", format, formatText, formatJSON, formatSarif, formatGitLab)
 	}
 
 	enabled, err := lint.SelectRules(listValue(v, keyEnable), listValue(v, keyDisable))
